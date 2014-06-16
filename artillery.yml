@@ -1,0 +1,38 @@
+---
+- name: Install Artillery
+  hosts: 
+   - all
+
+  tasks:
+
+  - name: Update cache
+    apt: update_cache=yes
+
+  - name: Install base packages and dependencies
+    apt: name={{ item }} state=present
+    with_items:
+      - git
+      - gcc
+      - python-dev
+      - libxml2
+      - libxml2-dev
+      - libxslt-dev
+
+  - name: Check if artillery folder exists
+    stat: path=/var/www/artillery
+    register: check_artillery_folder
+
+  - name: Copy base application tar ball
+    copy: src=files/artillery.tar.gz dest=/var/artillery.tar.gz owner=root mode=644
+    when: check_artillery_folder.stat.exists == false
+
+  - name: Unarchive base tar ball
+    shell: tar -zxf  "/var/artillery.tar.gz" -C "/var/"
+    when: check_artillery_folder.stat.exists == false
+
+  - name: Copy artillery init script
+    template: src=templates/artillery.init dest=/etc/init.d/artillery mode=0755 owner=root group=root
+
+  - name: Restart Artillery
+    service: name=artillery state=restarted enabled=yes
+
