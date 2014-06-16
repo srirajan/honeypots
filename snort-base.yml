@@ -1,0 +1,134 @@
+---
+- name: Install Snort and Base on Ubuntu 12.04 LTS
+  hosts:
+   - all
+
+  vars: 
+    - snort_db: snort
+    - snort_user: snort
+    - snort_pwd: 4fkdFtkF5g6sjf96dD
+    - snort_host: localhost
+    - snort_listen_interface: eth0
+    - snort_home_net: ${ansible_default_ipv4.address}
+    - base_user: admin
+    - base_pwd: YFfjt5F6GF6gllww
+
+  tasks:
+
+  - name: Update cache
+    apt: update_cache=yes
+
+  - name: Install base packages and dependencies
+    apt: name={{ item }} state=present
+    with_items:
+      - curl
+      - vim
+      - mysql-server
+      - snort-mysql
+      - apache2
+      - php5-cli
+      - php5-mysql
+      - libapache2-mod-php5
+      - python-mysqldb
+
+  - name: Create a directory for copying files
+    action: file path=/root/files state=directory recurse=yes
+
+  - name: Start mysql and enable it
+    service: name=mysql state=started enabled=yes
+
+  - name: Drop snort database
+    mysql_db: name={{snort_db}} state=absent
+
+  - name: Create snort database
+    mysql_db: name={{snort_db}} state=present
+
+  - name: Import snort mysql schema
+    mysql_db: name={{snort_db}} state=import target=/usr/share/doc/snort-mysql/create_mysql.gz
+
+  - name: Create mysql user
+    mysql_user: name={{snort_user}} 
+              password={{snort_pwd}} 
+              priv={{snort_db}}.*:ALL 
+              host=localhost
+              state=present
+
+  - name: Check if base folder exists
+    stat: path=/etc/snort/rules.distro
+    register: check_rules_distro_folder
+
+  - name: Rename the current snort rules folder
+    shell: mv /etc/snort/rules /etc/snort/rules.distro
+    when: check_rules_distro_folder.stat.exists == false
+
+  - name: Create the rules folder 
+    file: path=/etc/snort/rules state=directory recurse=yes
+
+  - name: Copy community rules
+    copy: src=files/attack-responses.rules dest=/etc/snort/rules/attack-responses.rules owner=root group=root mode=644
+
+  - name: Copy Attack response rules
+    copy: src=files/community.rules dest=/etc/snort/rules/community.rules owner=root group=root mode=644
+
+  - name: Copy local rules
+    template: src=templates/local.rules dest=/etc/snort/rules/local.rules mode=0644 owner=root group=root
+
+  - name: Rename the current community map
+    shell: mv /etc/snort/community-sid-msg.map /etc/snort/community-sid-msg.map.distro
+
+  - name: Copy community message map
+    copy: src=files/community-sid-msg.map dest=/etc/snort/community-sid-msg.map owner=root group=root mode=644
+
+  - name: Copy snort configuration
+    template: src=templates/snort.conf dest=/etc/snort/snort.conf mode=0644 owner=root group=root
+
+  - name: Copy snort database configuration
+    template: src=templates/database.conf dest=/etc/snort/database.conf mode=0644 owner=root group=root
+
+  - name: Copy snort debain configuration
+    template: src=templates/snort.debian.conf dest=/etc/snort/snort.debian.conf mode=0644 owner=root group=root
+
+  - name: Snort Restart
+    service: name=snort state=restarted enabled=yes
+
+  - name: Check if base folder exists
+    stat: path=/var/www/base-1.4.5
+    register: check_base_folder
+
+  - name: Copy base application tar ball
+    copy: src=files/base-1.4.5.tar.gz dest=/var/www/base-1.4.5.tar.gz owner=nobody mode=644
+    when: check_base_folder.stat.exists == false
+
+  - name: Unarchive base tar ball
+    shell: tar -zxf  "/var/www/base-1.4.5.tar.gz" -C "/var/www/"
+    when: check_base_folder.stat.exists == false
+
+  - name: Create a sym link for base
+    action: file src=/var/www/base-1.4.5 dest=/var/www/base state=link 
+
+  - name: Check if adodb folder exists
+    stat: path=/var/www/adodb5
+    register: check_adodb_folder
+
+  - name: Copy adodb tar ball
+    copy: src=files/adodb519.tar.gz dest=/var/www/adodb519.tar.gz owner=nobody mode=644
+    when: check_adodb_folder.stat.exists == false
+
+  - name: Unarchive adodb tar ball
+    shell: tar -zxf  "/var/www/adodb519.tar.gz" -C "/var/www/"
+    when: check_adodb_folder.stat.exists == false
+
+  - name: Change perms of adodb folder
+    file: path=/var/www/adodb5 state=directory  mode=0755 owner=nobody recurse=yes
+
+  - name: Copy base sql file
+    template: src=templates/base.sql dest=/root/files/base.sql mode=0644 owner=root group=root
+
+  - name: Import base mysql schema
+    mysql_db: name={{snort_db}} state=import target=/root/files/base.sql 
+
+  - name: Copy base php conf file
+    template: src=templates/base_conf.php dest=/var/www/base-1.4.5/base_conf.php mode=0644 owner=nobody
+
+  - name: Restart Apache
+    service: name=apache2 state=restarted enabled=yes
